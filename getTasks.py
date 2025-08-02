@@ -11,6 +11,7 @@ import emoji
 from main import DEBUG
 from workflow import Workflow, ICON_WEB, ICON_CLOCK, ICON_WARNING, ICON_GROUP, web
 from config import confNames, getConfigValue
+from validation import validate_clickup_id, validate_api_key
 
 
 def main(wf):
@@ -66,7 +67,17 @@ def getTasks(wf):
 	# For mode = search: ClickUp does not offer a parameter 'filter_by' - therefore we receive all tasks, and use Alfred/fuzzy to filter.
 	if DEBUG > 0:
 		log.debug('[ Calling API to list tasks ]')
-	url = 'https://api.clickup.com/api/v2/team/' + getConfigValue(confNames['confTeam']) + '/task'
+	
+	# Validate team/workspace ID
+	try:
+		team_id = validate_clickup_id(getConfigValue(confNames['confTeam']), 'workspace')
+		url = f'https://api.clickup.com/api/v2/team/{team_id}/task'
+	except ValueError as e:
+		log.error(f'Invalid team/workspace ID: {e}')
+		wf.add_item(title = 'Invalid Workspace ID', subtitle = 'Please check your workspace configuration', valid = True, arg = 'cu:config ', icon = 'error.png')
+		wf.send_feedback()
+		return
+	
 	params = {}
 	wf3 = Workflow()
 
@@ -74,14 +85,22 @@ def getTasks(wf):
 	search_scope = getConfigValue(confNames['confSearchScope']) or 'auto'
 	
 	if search_scope == 'list':
-		params['list_ids[]'] = getConfigValue(confNames['confList'])
+		list_id = getConfigValue(confNames['confList'])
+		if list_id:
+			params['list_ids[]'] = validate_clickup_id(list_id, 'list')
 	elif search_scope == 'folder':
-		params['project_ids[]'] = getConfigValue(confNames['confProject'])
+		folder_id = getConfigValue(confNames['confProject'])
+		if folder_id:
+			params['project_ids[]'] = validate_clickup_id(folder_id, 'folder')
 	elif search_scope == 'space':
-		params['space_ids[]'] = getConfigValue(confNames['confSpace'])
+		space_id = getConfigValue(confNames['confSpace'])
+		if space_id:
+			params['space_ids[]'] = validate_clickup_id(space_id, 'space')
 	elif search_scope == 'auto':
 		# Auto mode: start with list scope
-		params['list_ids[]'] = getConfigValue(confNames['confList'])
+		list_id = getConfigValue(confNames['confList'])
+		if list_id:
+			params['list_ids[]'] = validate_clickup_id(list_id, 'list')
 	params['order_by'] = 'due_date'
 	# ClickUp API will return up to 100 tasks per page (their maximum)
 	params['page'] = 0
@@ -116,14 +135,21 @@ def getTasks(wf):
 			exit()
 		params['tags[]'] = defaultTag
 	headers = {}
-	headers['Authorization'] = getConfigValue(confNames['confApi'])
+	try:
+		api_key = validate_api_key(getConfigValue(confNames['confApi']))
+		headers['Authorization'] = api_key
+	except ValueError as e:
+		log.error(f'Invalid API key format: {e}')
+		wf3.add_item(title = 'Invalid API Key', subtitle = 'Please check your API key configuration', valid = True, arg = 'cu:config ', icon = 'error.png')
+		wf3.send_feedback()
+		return
 	headers['Content-Type'] = 'application/json'
 	if DEBUG > 1:
 		log.debug(url)
 		log.debug(headers)
 		log.debug(params)
 	try:
-		request = web.get(url, params = params, headers = headers)
+		request = web.get(url, params = params, headers = headers, timeout = 30)
 		request.raise_for_status()
 	except Exception as e:
 		log.debug('Error on HTTP request: ' + str(e))
@@ -168,7 +194,7 @@ def getTasks(wf):
 			
 			# Make another API call
 			try:
-				request = web.get(url, params = temp_params, headers = headers)
+				request = web.get(url, params = temp_params, headers = headers, timeout = 30)
 				request.raise_for_status()
 				folder_result = request.json()
 				
@@ -198,7 +224,7 @@ def getTasks(wf):
 			
 			# Make another API call
 			try:
-				request = web.get(url, params = temp_params, headers = headers)
+				request = web.get(url, params = temp_params, headers = headers, timeout = 30)
 				request.raise_for_status()
 				space_result = request.json()
 				
@@ -228,14 +254,18 @@ def getTasks(wf):
 	
 	if ('docs' in search_entities or search_entities_raw == 'all') and len(wf.args) > 1 and wf.args[1] == 'search':
 		# Fetch docs using v3 API (workspace_id is same as team_id)
-		workspace_id = getConfigValue(confNames['confTeam'])
-		docs_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/docs'
+		try:
+			workspace_id = validate_clickup_id(getConfigValue(confNames['confTeam']), 'workspace')
+			docs_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/docs'
+		except ValueError as e:
+			log.error(f'Invalid workspace ID for docs: {e}')
+			docs_url = None
 		
 		if DEBUG > 0:
 			log.debug('Fetching docs from v3 API')
 		
 		try:
-			docs_response = web.get(docs_url, headers=headers)
+			docs_response = web.get(docs_url, headers=headers, timeout=30)
 			docs_response.raise_for_status()
 			docs_data = docs_response.json()
 			
@@ -269,14 +299,18 @@ def getTasks(wf):
 	
 	if ('chats' in search_entities or search_entities_raw == 'all') and len(wf.args) > 1 and wf.args[1] == 'search':
 		# Fetch chat channels using v3 API
-		workspace_id = getConfigValue(confNames['confTeam'])
-		chat_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/chat/channels'
+		try:
+			workspace_id = validate_clickup_id(getConfigValue(confNames['confTeam']), 'workspace')
+			chat_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/chat/channels'
+		except ValueError as e:
+			log.error(f'Invalid workspace ID for chats: {e}')
+			chat_url = None
 		
 		if DEBUG > 0:
 			log.debug('Fetching chat channels from v3 API')
 		
 		try:
-			chat_response = web.get(chat_url, headers=headers)
+			chat_response = web.get(chat_url, headers=headers, timeout=30)
 			chat_response.raise_for_status()
 			chat_data = chat_response.json()
 			
@@ -323,8 +357,9 @@ def getTasks(wf):
 				log.debug('Fetching spaces for search')
 			
 			try:
-				space_url = f'https://api.clickup.com/api/v2/team/{workspace_id}/space'
-				space_response = web.get(space_url, headers=headers)
+				validated_workspace_id = validate_clickup_id(workspace_id, 'workspace')
+				space_url = f'https://api.clickup.com/api/v2/team/{validated_workspace_id}/space'
+				space_response = web.get(space_url, headers=headers, timeout=30)
 				space_response.raise_for_status()
 				space_data = space_response.json()
 				
@@ -357,17 +392,19 @@ def getTasks(wf):
 				
 			try:
 				# First get all spaces to fetch folders from each
-				space_url = f'https://api.clickup.com/api/v2/team/{workspace_id}/space'
-				space_response = web.get(space_url, headers=headers)
+				validated_workspace_id = validate_clickup_id(workspace_id, 'workspace')
+				space_url = f'https://api.clickup.com/api/v2/team/{validated_workspace_id}/space'
+				space_response = web.get(space_url, headers=headers, timeout=30)
 				space_response.raise_for_status()
 				space_data = space_response.json()
 				
 				for space in space_data.get('spaces', []):
 					space_id = space.get('id', '')
 					# Get folders for this space
-					folder_url = f'https://api.clickup.com/api/v2/space/{space_id}/folder'
+					validated_space_id = validate_clickup_id(space_id, 'space')
+					folder_url = f'https://api.clickup.com/api/v2/space/{validated_space_id}/folder'
 					try:
-						folder_response = web.get(folder_url, headers=headers)
+						folder_response = web.get(folder_url, headers=headers, timeout=30)
 						folder_response.raise_for_status()
 						folder_data = folder_response.json()
 						
@@ -405,8 +442,9 @@ def getTasks(wf):
 				
 			try:
 				# Get all lists from workspace
-				lists_url = f'https://api.clickup.com/api/v2/team/{workspace_id}/list'
-				lists_response = web.get(lists_url, headers=headers)
+				validated_workspace_id = validate_clickup_id(workspace_id, 'workspace')
+				lists_url = f'https://api.clickup.com/api/v2/team/{validated_workspace_id}/list'
+				lists_response = web.get(lists_url, headers=headers, timeout=30)
 				lists_response.raise_for_status()
 				lists_data = lists_response.json()
 				

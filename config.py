@@ -7,8 +7,32 @@
 #
 import sys
 from workflow import Workflow, ICON_WARNING, web, PasswordNotFound
+from validation import validate_clickup_id, validate_api_key
 
 confNames = {'confApi': 'apiKey', 'confDue': 'dueDate', 'confList': 'list', 'confSpace': 'space', 'confTeam': 'workspace', 'confProject': 'folder', 'confNotification': 'notification', 'confDefaultTag': 'defaultTag', 'confUser': 'userId', 'confSearchScope': 'searchScope', 'confSearchEntities': 'searchEntities'}
+
+
+def maskApiKey(apiKey):
+	'''Masks an API key for security display, showing only first 4 and last 4 characters.
+	
+	Args:
+		apiKey (str): The API key to mask
+		
+	Returns:
+		str: Masked API key (e.g., "pk_3****MD3G" for short keys, "pk_30050********************************MD3G" for long keys)
+	'''
+	if not apiKey:
+		return ''
+	
+	if len(apiKey) <= 8:
+		# For very short keys, show first 2 and last 2 with asterisks
+		return apiKey[:2] + '****' + apiKey[-2:]
+	elif len(apiKey) <= 12:
+		# For short keys, show first 4 and last 4 with asterisks
+		return apiKey[:4] + '****' + apiKey[-4:]
+	else:
+		# For long keys (typical ClickUp format), show first 8, asterisks, and last 4
+		return apiKey[:8] + '*' * 32 + apiKey[-4:]
 
 
 def main(wf):
@@ -42,13 +66,7 @@ def configuration():
 		searchEntitiesValue = getConfigValue(confNames['confSearchEntities']) or 'tasks'
 
 		# Mask API key for security - match ClickUp's format: pk_30050********************************MD3G
-		maskedApiKey = ''
-		if apiKeyValue:
-			if len(apiKeyValue) > 12:
-				# Show first 8 chars, asterisks, and last 4 chars
-				maskedApiKey = apiKeyValue[:8] + '*' * 32 + apiKeyValue[-4:]
-			else:
-				maskedApiKey = '***'
+		maskedApiKey = maskApiKey(apiKeyValue)
 		# Mark required fields with asterisk
 		wf3.add_item(title = ('*' if not apiKeyValue else '') + 'Set API key' + (' (' + maskedApiKey + ')' if maskedApiKey else ''), subtitle = 'Your personal ClickUp API key/token. (Required)', valid = False, autocomplete = confNames['confApi'] + ' ', icon='icon.png' if apiKeyValue else 'error.png')
 		wf3.add_item(title = 'Set default due date' + (' (' + dueValue + ')' if dueValue else ''), subtitle = 'e.g. m30 (in 30 minutes), h2 (in two hours), d1 (in one day), w1 (in one week).', valid = False, autocomplete = confNames['confDue'] + ' ')
@@ -83,7 +101,9 @@ def configuration():
 		clearCache.setvar('isSubmitted', 'true') # No secondary screen necessary
 	elif query.startswith(confNames['confApi'] + ' '): # Check for suffix ' ' which we add automatically so user can type immediately
 		userInput = query.replace(confNames['confApi'] + ' ', '')
-		apiItem = wf3.add_item(title = 'Enter API key: ' + userInput, subtitle = 'Confirm to save to keychain?', valid = True, arg = 'cu:config ' + query)
+		# Mask the API key input for security - prevent shoulder surfing and screen recording exposure
+		maskedInput = maskApiKey(userInput) if userInput else ''
+		apiItem = wf3.add_item(title = 'Enter API key: ' + maskedInput, subtitle = 'Confirm to save to keychain?', valid = True, arg = 'cu:config ' + query)
 		apiItem.setvar('isSubmitted', 'true')
 	elif query.startswith(confNames['confDue'] + ' '):
 		userInput = query.replace(confNames['confDue'] + ' ', '')
@@ -134,11 +154,11 @@ def configuration():
 				
 				if not lists:
 					headers = {
-						'Authorization': apiKey,
+						'Authorization': validate_api_key(apiKey),
 						'Content-Type': 'application/json'
 					}
 					try:
-						response = web.get(url, headers=headers)
+						response = web.get(url, headers=headers, timeout=30)
 						response.raise_for_status()
 						data = response.json()
 						lists = data.get('lists', [])
@@ -213,13 +233,14 @@ def configuration():
 				spaces = wf.cached_data(cache_key, None, max_age=300)  # 5 min cache
 				
 				if not spaces:
-					url = f'https://api.clickup.com/api/v2/team/{workspace_id}/space'
+					validated_workspace_id = validate_clickup_id(workspace_id, 'workspace')
+					url = f'https://api.clickup.com/api/v2/team/{validated_workspace_id}/space'
 					headers = {
-						'Authorization': apiKey,
+						'Authorization': validate_api_key(apiKey),
 						'Content-Type': 'application/json'
 					}
 					try:
-						response = web.get(url, headers=headers)
+						response = web.get(url, headers=headers, timeout=30)
 						response.raise_for_status()
 						data = response.json()
 						spaces = data.get('spaces', [])
@@ -284,11 +305,11 @@ def configuration():
 			if not workspaces:
 				url = 'https://api.clickup.com/api/v2/team'
 				headers = {
-					'Authorization': apiKey,
+					'Authorization': validate_api_key(apiKey),
 					'Content-Type': 'application/json'
 				}
 				try:
-					response = web.get(url, headers=headers)
+					response = web.get(url, headers=headers, timeout=30)
 					response.raise_for_status()
 					data = response.json()
 					workspaces = data.get('teams', [])
@@ -362,13 +383,14 @@ def configuration():
 				folders = wf.cached_data(cache_key, None, max_age=300)  # 5 min cache
 				
 				if not folders:
-					url = f'https://api.clickup.com/api/v2/space/{space_id}/folder'
+					validated_space_id = validate_clickup_id(space_id, 'space')
+					url = f'https://api.clickup.com/api/v2/space/{validated_space_id}/folder'
 					headers = {
-						'Authorization': apiKey,
+						'Authorization': validate_api_key(apiKey),
 						'Content-Type': 'application/json'
 					}
 					try:
-						response = web.get(url, headers=headers)
+						response = web.get(url, headers=headers, timeout=30)
 						response.raise_for_status()
 						data = response.json()
 						folders = data.get('folders', [])
@@ -675,14 +697,35 @@ def checkClickUpId(idType, configKey):
 	@param str idType: The value to be used in the API URL.
 	@param str configKey: The name of the setting to be retrieved.
 	'''
-	url = 'https://api.clickup.com/api/v2/' + idType + '/' + getConfigValue(confNames[configKey])
-	headers = {}
-	headers['Authorization'] = getConfigValue(confNames['confApi'])
-	headers['Content-Type'] = 'application/json'
+	try:
+		# Validate the ID based on its type
+		id_value = getConfigValue(confNames[configKey])
+		if not id_value:
+			return False
+		
+		# Map idType to validation type
+		validation_type = idType
+		if idType == 'team':
+			validation_type = 'workspace'
+		elif idType == 'project':
+			validation_type = 'folder'
+			
+		validated_id = validate_clickup_id(id_value, validation_type)
+		url = f'https://api.clickup.com/api/v2/{idType}/{validated_id}'
+		
+		# Validate API key
+		api_key = validate_api_key(getConfigValue(confNames['confApi']))
+		headers = {
+			'Authorization': api_key,
+			'Content-Type': 'application/json'
+		}
+	except ValueError as e:
+		log.error(f'Validation error in checkClickUpId: {e}')
+		return False
 
 	# Use requests instead of Workflow.web, as web does not return the response in case of failure (only 401 NOT_AUTHORIZED, which is the same for API key failure or listId etc. failure)
 	import requests
-	request = requests.get(url, headers = headers)
+	request = requests.get(url, headers = headers, timeout = 30)
 	result = request.json()
 	if 'ECODE' in result and result['ECODE'] == 'OAUTH_019': # Wrong API key
 		return False

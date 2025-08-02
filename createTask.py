@@ -14,6 +14,7 @@ from main import DEBUG, formatNotificationText
 from config import confNames, getConfigValue
 from workflow import Workflow, web
 from workflow.notify import notify
+from validation import validate_clickup_id, validate_api_key
 
 
 def main(wf):
@@ -36,7 +37,14 @@ def getCurrentUser():
 		url = 'https://api.clickup.com/api/v2/user'
 		params = None
 		headers = {}
-		headers['Authorization'] = getConfigValue(confNames['confApi'])
+		try:
+			api_key = validate_api_key(getConfigValue(confNames['confApi']))
+			headers['Authorization'] = api_key
+		except ValueError as e:
+			log.error(f'Invalid API key format: {e}')
+			wf3.add_item(title = 'Invalid API Key', subtitle = 'Please check your API key configuration', valid = True, arg = 'cu:config ', icon = 'error.png')
+			wf3.send_feedback()
+			exit()
 		headers['Content-Type'] = 'application/json'
 		
 		if DEBUG > 1:
@@ -44,7 +52,7 @@ def getCurrentUser():
 			log.debug(headers)
 		
 		try:
-			request = web.get(url, params = params, headers = headers)
+			request = web.get(url, params = params, headers = headers, timeout = 30)
 			request.raise_for_status()
 		except:
 			log.debug('Error on HTTP request')
@@ -78,6 +86,15 @@ def createTask(inputName, inputContent, inputDue, inputPriority, inputTags, inpu
 		# Get value of first key in dictionary {Name, Id} by converting to List. The dict will always contain a single list name+Id the user specified.
 		inputListId = next(iter(inputList.items()))[1] # Get value for first key of dict
 	
+	# Validate list ID
+	try:
+		inputListId = validate_clickup_id(inputListId, 'list')
+	except ValueError as e:
+		log.error(f'Invalid list ID: {e}')
+		wf3.add_item(title = 'Invalid List ID', subtitle = 'Please check your list configuration', valid = True, arg = 'cu:config ', icon = 'error.png')
+		wf3.send_feedback()
+		exit()
+	
 	if inputDue != 'None':
 		if len(inputDue) == 26: # 2020-01-01T12:00:00.000000
 			inputDue = datetime.datetime.strptime(str(inputDue)[:len(inputDue) - 10], '%Y-%m-%d %H:%M') # Convert String to datetime. Remove seconds.milliseconds (e.g. :26.614286) from string
@@ -85,10 +102,17 @@ def createTask(inputName, inputContent, inputDue, inputPriority, inputTags, inpu
 			inputDue = datetime.datetime.strptime(str(inputDue)[:len(inputDue)], '%Y-%m-%d %H:%M:%S')
 		inputDueMs = (inputDue - datetime.datetime.fromtimestamp(0)).total_seconds() * 1000.0 # Convert datetime into ms. Use fromtimestamp() to get local timezone instead of utcfromtimestamp()
 	
-	url = 'https://api.clickup.com/api/v2/list/' + inputListId + '/task'
+	url = f'https://api.clickup.com/api/v2/list/{inputListId}/task'
 	params = None
 	headers = {}
-	headers['Authorization'] = getConfigValue(confNames['confApi'])
+	try:
+		api_key = validate_api_key(getConfigValue(confNames['confApi']))
+		headers['Authorization'] = api_key
+	except ValueError as e:
+		log.error(f'Invalid API key format: {e}')
+		wf3.add_item(title = 'Invalid API Key', subtitle = 'Please check your API key configuration', valid = True, arg = 'cu:config ', icon = 'error.png')
+		wf3.send_feedback()
+		exit()
 	headers['Content-Type'] = 'application/json'
 	data = {}
 	data['name'] = inputName
@@ -108,7 +132,7 @@ def createTask(inputName, inputContent, inputDue, inputPriority, inputTags, inpu
 	
 	try:
 		import json
-		request = web.post(url, params = params, data = json.dumps(data), headers = headers)
+		request = web.post(url, params = params, data = json.dumps(data), headers = headers, timeout = 30)
 		request.raise_for_status()
 	except:
 		log.debug('Error on HTTP request')
