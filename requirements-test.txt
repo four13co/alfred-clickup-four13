@@ -5,6 +5,9 @@ pytest-cov>=4.1.0
 pytest-xdist>=3.3.0
 requests-mock>=1.11.0
 
+# Runtime dependencies needed for tests
+requests>=2.25.0
+
 # Development dependencies
 black>=23.0.0
 flake8>=6.0.0
