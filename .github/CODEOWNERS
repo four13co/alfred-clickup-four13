@@ -1,0 +1,22 @@
+# Global code ownership
+# These users will be requested for review when anyone opens a pull request.
+
+# Main codebase
+* @four13co
+
+# Security-critical files require additional review
+validation.py @four13co
+configStore.py @four13co
+*.yml @four13co
+*.yaml @four13co
+
+# Workflow and CI/CD files
+.github/ @four13co
+build.sh @four13co
+info.plist @four13co
+
+# Documentation and configuration
+CLAUDE.md @four13co
+README.md @four13co
+requirements*.txt @four13co
+pytest.ini @four13co
