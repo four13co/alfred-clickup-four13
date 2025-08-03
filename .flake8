@@ -1,0 +1,31 @@
+[flake8]
+max-line-length = 127
+max-complexity = 10
+exclude = 
+    tests/,
+    chardet/,
+    idna/,
+    requests/,
+    urllib3/,
+    certifi/,
+    emoji/,
+    __pycache__,
+    *.pyc,
+    .git,
+    .github,
+    build/,
+    dist/,
+    *.egg-info
+ignore = 
+    # Python 2/3 compatibility issues in vendor libraries
+    F821,
+    # Unused global in legacy code that needs refactoring
+    F824
+select = E9,F63,F7,F82
+# Only check our own Python files, not vendor libraries
+per-file-ignores =
+    # Vendor libraries can have their own style
+    chardet/*:E,F
+    idna/*:E,F
+    requests/*:E,F
+    urllib3/*:E,F

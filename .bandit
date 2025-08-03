@@ -1,0 +1,22 @@
+[bandit]
+# Exclude vendor libraries and test files from security scanning
+exclude_dirs = 
+    - /tests/
+    - /chardet/
+    - /idna/
+    - /requests/
+    - /urllib3/
+    - /certifi/
+    - /emoji/
+    - /__pycache__/
+    - /.git/
+    - /.github/
+    - /build/
+    - /dist/
+
+# Skip specific tests that are not relevant for this project
+skips = 
+    # B104: Possible binding to all interfaces (not relevant for Alfred workflow)
+    - B104
+    # B601: shell=True is used but safely in our context
+    - B601

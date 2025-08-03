@@ -8,6 +8,11 @@ Tests the input validation functions that protect against injection attacks
 and ensure ClickUp ID formats are correct.
 """
 
+import sys
+import os
+# Add parent directory to path to import validation module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
 import pytest
 from validation import validate_clickup_id, validate_api_key, sanitize_url_parameter, build_safe_api_url
 

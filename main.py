@@ -82,7 +82,6 @@ def getLabels(input):
 		log.debug('[ Displaying labels ] - input: ' + input)
 	availableTags = wf.cached_data('availableLabels', retrieveLabelsFromAPI, max_age = 600) # Get data from cache or retrieve from API
 
-	global query
 	global hasFoundMatch
 	# If user types 'test #123 ', we know that the tag has already been chosen - no need to display
 	isUserEndedInput = query[-1] == ' '
@@ -118,7 +117,6 @@ def getPriorities(input):
 	if DEBUG > 0:
 		log.debug('[ Collecting priorities - input: ' + input + ']')
 
-	global query
 	global hasFoundMatch
 	dicPriorities = {1: 'Urgent', 2: 'High', 3: 'Normal', 4: 'Low'} # Priorities cannot be customized by user. -1 = None, but must not be selectable.
 
@@ -190,7 +188,6 @@ def getLists(input, doPrintResults):
 	'''
 	if DEBUG > 0:
 		log.debug('[ Displaying lists (' + str(doPrintResults) + ') ] - input: ' + input)
-	global query
 	global availableLists
 	availableLists = wf.cached_data('availableLists', retrieveListsFromAPI, max_age = 7200)
 
@@ -203,7 +200,6 @@ def getLists(input, doPrintResults):
 				# Store association of name to Id, as Id needs to be passed to API
 				# Hidden lists are outside of a Folder, only connected to a Space
 				folderName = '[' + singleList['folder']['name'] + '] ' if (singleList['folder']['name'] != 'hidden') else ''
-				global availableListsIdName
 				availableListsIdName[singleList['id']] = folderName + singleList['name']
 				availableListsNameId[folderName + singleList['name']] = singleList['id']
 				allListTitles.append(folderName + singleList['name'])
@@ -634,7 +630,6 @@ def getListFromInput(query):
 	if DEBUG > 0:
 		log.debug('[ getListFromInput() ] ')
 	inputList = getConfigValue(confNames['confList'])
-	global availableListsIdName
 	hasList = len(query.split('+')) > 1
 	if hasList:
 		# If user is typing, the current list name - e.g. 'tes' for 'cu X +tes' - will not match anything in the dict. Until we found a complete match, do not attempt to update inputList
