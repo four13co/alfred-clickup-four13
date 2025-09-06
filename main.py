@@ -16,7 +16,7 @@ from workflow.update import Version
 from config import confNames, getConfigValue
 from validation import validate_clickup_id, validate_api_key
 
-DEBUG = 0 # 0 = Off (no output), 1 = Some, 2 = All (WARNING: Level 2 may expose sensitive data in logs)
+DEBUG = 2 # 0 = Off (no output), 1 = Some, 2 = All (WARNING: Level 2 may expose sensitive data in logs)
 
 UPDATE_SETTINGS = {
 	'github_slug': 'mschmidtkorth/alfred-clickup-msk',

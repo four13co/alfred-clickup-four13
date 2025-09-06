@@ -106,13 +106,15 @@ def getTasks(wf):
 	params['page'] = 0
 	
 	# Differentiates between listing all Alfred-created tasks and searching for all tasks (any)
-	if DEBUG > 0 and len(wf.args) > 1 and wf.args[1] == 'search':
-		log.debug('[ Mode: Search (cus) ]')
+	if len(wf.args) > 1 and wf.args[1] == 'search':
+		if DEBUG > 0:
+			log.debug('[ Mode: Search (cus) ]')
 		# Add search query if provided
 		if len(wf.args) > 0 and wf.args[0]:
 			params['query'] = wf.args[0]
-	elif DEBUG > 0 and len(wf.args) > 1 and wf.args[1] == 'open':
-		log.debug('[ Mode: Open tasks (cuo) ]')
+	elif len(wf.args) > 1 and wf.args[1] == 'open':
+		if DEBUG > 0:
+			log.debug('[ Mode: Open tasks (cuo) ]')
 		# from datetime import date, datetime, timezone, timedelta
 
 		today = datetime.date.today()
@@ -122,7 +124,8 @@ def getTasks(wf):
 
 		params['due_date_lt'] = todayEndOfDayMs
 	else:
-		log.debug('[ Mode: List tasks (cul) ]')
+		if DEBUG > 0:
+			log.debug('[ Mode: List tasks (cul) ]')
 		defaultTag = getConfigValue(confNames['confDefaultTag'])
 		if not defaultTag:
 			wf3.add_item(
@@ -179,18 +182,33 @@ def getTasks(wf):
 		wf3.send_feedback()
 		exit()
 	
-	# Auto mode expansion logic - accumulate results from all levels
+	# Auto mode expansion logic - smart expansion based on search relevance
 	if search_scope == 'auto' and len(wf.args) > 1 and wf.args[1] == 'search':
 		all_tasks = list(result.get('tasks', []))  # Start with list-level tasks
 		task_ids = {task['id'] for task in all_tasks}  # Track IDs to avoid duplicates
+		search_query = wf.args[0].lower() if wf.args[0] else ''
 		
 		if DEBUG > 0:
 			log.debug('Auto mode: Got %d tasks at list level' % len(all_tasks))
 		
-		# Always try folder level to get more results
-		if getConfigValue(confNames['confProject']):
+		# Count how many results are actually relevant to the search query
+		relevant_count = 0
+		if search_query:
+			for task in all_tasks:
+				task_name = task.get('name', '').lower()
+				if search_query in task_name:
+					relevant_count += 1
+		
+		if DEBUG > 0:
+			log.debug('Auto mode: %d tasks contain search term "%s"' % (relevant_count, search_query))
+		
+		# Only expand if we have fewer than 10 relevant results
+		should_expand = relevant_count < 10
+		
+		# Try folder level only if we need more relevant results
+		if should_expand and getConfigValue(confNames['confProject']):
 			if DEBUG > 0:
-				log.debug('Auto mode: Expanding to folder level')
+				log.debug('Auto mode: Expanding to folder level (need more relevant results)')
 			# Remove list constraint, add folder constraint
 			temp_params = params.copy()
 			if 'list_ids[]' in temp_params:
@@ -204,21 +222,26 @@ def getTasks(wf):
 				folder_result = request.json()
 				
 				# Add new tasks (avoid duplicates)
+				folder_relevant = 0
 				for task in folder_result.get('tasks', []):
 					if task['id'] not in task_ids:
 						all_tasks.append(task)
 						task_ids.add(task['id'])
+						# Count if this new task is relevant
+						if search_query and search_query in task.get('name', '').lower():
+							folder_relevant += 1
 				
+				relevant_count += folder_relevant
 				if DEBUG > 0:
-					log.debug('Auto mode: Total %d tasks after folder level' % len(all_tasks))
+					log.debug('Auto mode: Total %d tasks after folder level (%d relevant)' % (len(all_tasks), relevant_count))
 			except Exception as e:
 				if DEBUG > 0:
 					log.debug('Auto mode folder expansion failed: %s' % str(e))
 		
-		# If we still don't have many results, try space level
-		if len(all_tasks) < 50 and getConfigValue(confNames['confSpace']):
+		# Try space level only if we still need more relevant results and don't have too many total
+		if relevant_count < 10 and len(all_tasks) < 30 and getConfigValue(confNames['confSpace']):
 			if DEBUG > 0:
-				log.debug('Auto mode: Expanding to space level')
+				log.debug('Auto mode: Expanding to space level (still need relevant results)')
 			# Remove folder constraint, add space constraint
 			temp_params = params.copy()
 			if 'list_ids[]' in temp_params:
@@ -234,16 +257,24 @@ def getTasks(wf):
 				space_result = request.json()
 				
 				# Add new tasks (avoid duplicates)
+				space_relevant = 0
 				for task in space_result.get('tasks', []):
 					if task['id'] not in task_ids:
 						all_tasks.append(task)
 						task_ids.add(task['id'])
+						# Count if this new task is relevant
+						if search_query and search_query in task.get('name', '').lower():
+							space_relevant += 1
 				
+				relevant_count += space_relevant
 				if DEBUG > 0:
-					log.debug('Auto mode: Total %d tasks after space level' % len(all_tasks))
+					log.debug('Auto mode: Total %d tasks after space level (%d relevant)' % (len(all_tasks), relevant_count))
 			except Exception as e:
 				if DEBUG > 0:
 					log.debug('Auto mode space expansion failed: %s' % str(e))
+		elif relevant_count >= 10:
+			if DEBUG > 0:
+				log.debug('Auto mode: Skipping space expansion - already have %d relevant results' % relevant_count)
 		
 		# Replace result with accumulated tasks
 		result['tasks'] = all_tasks
@@ -258,94 +289,125 @@ def getTasks(wf):
 	docs_results = []
 	
 	if ('docs' in search_entities or search_entities_raw == 'all') and len(wf.args) > 1 and wf.args[1] == 'search':
-		# Fetch docs using v3 API (workspace_id is same as team_id)
-		try:
-			workspace_id = validate_clickup_id(getConfigValue(confNames['confTeam']), 'workspace')
-			docs_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/docs'
-		except ValueError as e:
-			log.error(f'Invalid workspace ID for docs: {e}')
-			docs_url = None
+		# Only fetch docs if we don't already have enough relevant task results
+		should_fetch_docs = True
+		if search_scope == 'auto' and len(wf.args) > 0 and wf.args[0]:
+			# Count relevant task results
+			search_query = wf.args[0].lower()
+			relevant_tasks = 0
+			for task in result.get('tasks', []):
+				if search_query in task.get('name', '').lower():
+					relevant_tasks += 1
+			# Skip docs if we already have plenty of relevant task results
+			if relevant_tasks >= 15:
+				should_fetch_docs = False
+				if DEBUG > 0:
+					log.debug('Skipping docs fetch - already have %d relevant task results' % relevant_tasks)
 		
-		if DEBUG > 0:
-			log.debug('Fetching docs from v3 API')
-		
-		try:
-			docs_response = web.get(docs_url, headers=headers, timeout=30)
-			docs_response.raise_for_status()
-			docs_data = docs_response.json()
-			
-			if DEBUG > 1:
-				log.debug('Docs API response: %d docs found' % len(docs_data.get('docs', [])))
-			
-			# Process docs
-			for doc in docs_data.get('docs', []):
-				doc_title = doc.get('name', 'Untitled Document')
-				doc_id = doc.get('id', '')
-				# Try to use the URL from the API response, otherwise construct it
-				doc_url = doc.get('url', f'https://app.clickup.com/{workspace_id}/d/{doc_id}')
-				
-				docs_results.append({
-					'type': 'doc',
-					'title': doc_title,
-					'id': doc_id,
-					'url': doc_url
-				})
+		if should_fetch_docs:
+			# Fetch docs using v3 API (workspace_id is same as team_id) with search parameter
+			try:
+				workspace_id = validate_clickup_id(getConfigValue(confNames['confTeam']), 'workspace')
+				docs_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/docs'
+			except ValueError as e:
+				log.error(f'Invalid workspace ID for docs: {e}')
+				docs_url = None
 			
 			if DEBUG > 0:
-				log.debug('Added %d docs to results' % len(docs_results))
+				log.debug('Fetching docs from v3 API with search query')
+			
+			# Prepare docs search parameters
+			docs_params = {}
+			if len(wf.args) > 0 and wf.args[0]:
+				docs_params['search'] = wf.args[0]
+			
+			try:
+				docs_response = web.get(docs_url, params=docs_params, headers=headers, timeout=30)
+				docs_response.raise_for_status()
+				docs_data = docs_response.json()
 				
-		except Exception as e:
-			if DEBUG > 0:
-				log.debug('Failed to fetch docs: ' + str(e))
-			# Continue with task results even if docs fail
+				if DEBUG > 1:
+					log.debug('Docs API response: %d docs found' % len(docs_data.get('docs', [])))
+				
+				# Process docs
+				for doc in docs_data.get('docs', []):
+					doc_title = doc.get('name', 'Untitled Document')
+					doc_id = doc.get('id', '')
+					# Try to use the URL from the API response, otherwise construct it
+					doc_url = doc.get('url', f'https://app.clickup.com/{workspace_id}/d/{doc_id}')
+					
+					docs_results.append({
+						'type': 'doc',
+						'title': doc_title,
+						'id': doc_id,
+						'url': doc_url
+					})
+				
+				if DEBUG > 0:
+					log.debug('Added %d docs to results' % len(docs_results))
+					
+			except Exception as e:
+				if DEBUG > 0:
+					log.debug('Failed to fetch docs: ' + str(e))
+				# Continue with task results even if docs fail
 	
 	# Check if we should also search for chat channels
 	chat_results = []
 	
 	if ('chats' in search_entities or search_entities_raw == 'all') and len(wf.args) > 1 and wf.args[1] == 'search':
-		# Fetch chat channels using v3 API
-		try:
-			workspace_id = validate_clickup_id(getConfigValue(confNames['confTeam']), 'workspace')
-			chat_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/chat/channels'
-		except ValueError as e:
-			log.error(f'Invalid workspace ID for chats: {e}')
-			chat_url = None
+		# Only fetch chats if we don't already have plenty of other results
+		should_fetch_chats = True
+		if search_scope == 'auto':
+			total_results = len(result.get('tasks', [])) + len(docs_results)
+			if total_results >= 20:
+				should_fetch_chats = False
+				if DEBUG > 0:
+					log.debug('Skipping chats fetch - already have %d total results' % total_results)
 		
-		if DEBUG > 0:
-			log.debug('Fetching chat channels from v3 API')
-		
-		try:
-			chat_response = web.get(chat_url, headers=headers, timeout=30)
-			chat_response.raise_for_status()
-			chat_data = chat_response.json()
-			
-			if DEBUG > 1:
-				log.debug('Chat API response: %d channels found' % len(chat_data.get('channels', [])))
-			
-			# Process chat channels
-			for channel in chat_data.get('channels', []):
-				channel_name = channel.get('name', 'Unnamed Channel')
-				channel_id = channel.get('id', '')
-				channel_type = channel.get('type', 'channel')  # Could be 'channel' or 'dm' (direct message)
-				
-				# Construct URL - this is an educated guess based on ClickUp's URL patterns
-				channel_url = f'https://app.clickup.com/{workspace_id}/chat/channel/{channel_id}'
-				
-				chat_results.append({
-					'type': 'chat',
-					'title': channel_name,
-					'id': channel_id,
-					'url': channel_url,
-					'channel_type': channel_type
-				})
+		if should_fetch_chats:
+			# Fetch chat channels using v3 API
+			try:
+				workspace_id = validate_clickup_id(getConfigValue(confNames['confTeam']), 'workspace')
+				chat_url = f'https://api.clickup.com/api/v3/workspaces/{workspace_id}/chat/channels'
+			except ValueError as e:
+				log.error(f'Invalid workspace ID for chats: {e}')
+				chat_url = None
 			
 			if DEBUG > 0:
-				log.debug('Added %d chat channels to results' % len(chat_results))
+				log.debug('Fetching chat channels from v3 API')
+			
+			try:
+				chat_response = web.get(chat_url, headers=headers, timeout=30)
+				chat_response.raise_for_status()
+				chat_data = chat_response.json()
 				
-		except Exception as e:
-			if DEBUG > 0:
-				log.debug('Failed to fetch chat channels: ' + str(e))
-			# Continue with other results even if chat fails
+				if DEBUG > 1:
+					log.debug('Chat API response: %d channels found' % len(chat_data.get('channels', [])))
+				
+				# Process chat channels
+				for channel in chat_data.get('channels', []):
+					channel_name = channel.get('name', 'Unnamed Channel')
+					channel_id = channel.get('id', '')
+					channel_type = channel.get('type', 'channel')  # Could be 'channel' or 'dm' (direct message)
+					
+					# Construct URL - this is an educated guess based on ClickUp's URL patterns
+					channel_url = f'https://app.clickup.com/{workspace_id}/chat/channel/{channel_id}'
+					
+					chat_results.append({
+						'type': 'chat',
+						'title': channel_name,
+						'id': channel_id,
+						'url': channel_url,
+						'channel_type': channel_type
+					})
+				
+				if DEBUG > 0:
+					log.debug('Added %d chat channels to results' % len(chat_results))
+				
+			except Exception as e:
+				if DEBUG > 0:
+					log.debug('Failed to fetch chat channels: ' + str(e))
+				# Continue with other results even if chat fails
 	
 	# Check if we should search for Lists, Folders, and Spaces
 	lists_results = []
