@@ -8,6 +8,7 @@
 import sys
 import datetime
 import emoji
+import hashlib
 from main import DEBUG
 from workflow import Workflow, ICON_WEB, ICON_CLOCK, ICON_WARNING, ICON_GROUP, web
 from config import confNames, getConfigValue
@@ -16,6 +17,198 @@ from validation import validate_clickup_id, validate_api_key
 
 def main(wf):
 	getTasks(wf)
+
+
+def safeStr(value):
+	'''Safely convert any value to lowercase string, handling None'''
+	if value is None:
+		return ''
+	return str(value).lower()
+
+def filterAndScoreTasks(tasks, search_term):
+	'''Filter tasks for relevance and add scoring for ranking.
+	This replaces ClickUp's unreliable API query parameter.
+	'''
+	if not search_term:
+		return tasks
+		
+	search_term_lower = search_term.lower()
+	relevant_tasks = []
+	
+	for task in tasks:
+		try:
+			score = 0
+			
+			# Debug: Log the first few task names to see if they contain expected strings
+			if DEBUG > 1 and len(relevant_tasks) < 3:
+				task_name = safeStr(task.get('name', ''))
+				print(f"DEBUG: Checking task '{task_name}' for '{search_term_lower}'", file=sys.stderr)
+			
+			# Check task name (highest priority)
+			name = safeStr(task.get('name', ''))
+			if search_term_lower in name:
+				if name == search_term_lower:
+					score += 10  # Exact match
+				elif name.startswith(search_term_lower):
+					score += 8   # Starts with
+				else:
+					score += 5   # Contains
+			
+			# Check description
+			description = safeStr(task.get('description', ''))
+			if search_term_lower in description:
+				score += 2
+			
+			# Check task content/text
+			text_content = safeStr(task.get('text_content', ''))
+			if search_term_lower in text_content:
+				score += 2
+			
+			# Check tags
+			for tag in task.get('tags', []) or []:
+				if tag:
+					tag_name = safeStr(tag.get('name', ''))
+					if search_term_lower in tag_name:
+						score += 3
+			
+			# Check custom fields
+			for cf in task.get('custom_fields', []) or []:
+				if cf and cf.get('value') is not None:
+					cf_value = safeStr(cf.get('value', ''))
+					if search_term_lower in cf_value:
+						score += 2
+			
+			# Check list name
+			list_info = task.get('list', {}) or {}
+			if list_info:
+				list_name = safeStr(list_info.get('name', ''))
+				if search_term_lower in list_name:
+					score += 1
+			
+			# Check folder name
+			folder_info = task.get('folder', {}) or {}
+			if folder_info:
+				folder_name = safeStr(folder_info.get('name', ''))
+				if search_term_lower in folder_name:
+					score += 1
+			
+			if score > 0:
+				task['_relevance_score'] = score
+				relevant_tasks.append(task)
+				
+		except Exception as e:
+			# Log the error but continue processing other tasks
+			print(f"Error processing task {task.get('id', 'unknown')}: {str(e)}", file=sys.stderr)
+			continue
+	
+	# Debug: Log filtering summary
+	if DEBUG > 0:
+		print(f"DEBUG: filterAndScoreTasks processed {len(tasks)} tasks, found {len(relevant_tasks)} matches for '{search_term}'", file=sys.stderr)
+		if len(relevant_tasks) == 0 and len(tasks) > 0:
+			# Sample a few task names to see what we're working with
+			sample_names = [safeStr(t.get('name', '')) for t in tasks[:5]]
+			print(f"DEBUG: Sample task names: {sample_names}", file=sys.stderr)
+	
+	# Sort by relevance score (highest first)
+	return sorted(relevant_tasks, key=lambda x: x.get('_relevance_score', 0), reverse=True)
+
+
+def quickSearch(wf, log, url, headers, params, search_term, action='initial'):
+	'''Fast iterative search that returns results in < 5 seconds.
+	Uses action-based progression for user-controlled depth.
+	'''
+	import hashlib
+	
+	# Create session ID and parse action
+	session_id = hashlib.md5(search_term.encode()).hexdigest()[:8]
+	cache_key = f'search_session_{session_id}'
+	
+	# Parse action type and parameters
+	if action.startswith('more_'):
+		# Parse action like "more_updated_2" for strategy=updated, page=2
+		parts = action.split('_')
+		strategy = parts[1] if len(parts) > 1 else 'updated'
+		page = int(parts[2]) if len(parts) > 2 else 1
+		action_type = 'more'
+	elif action.startswith('strategy_'):
+		# Parse action like "strategy_created" to switch strategy
+		strategy = action.split('_')[1] if '_' in action else 'updated'
+		page = 0
+		action_type = 'strategy'
+	else:
+		# Initial search
+		strategy = 'updated'
+		page = 0
+		action_type = 'initial'
+	
+	# Get or create search session
+	import time
+	session = wf.cached_data(cache_key, max_age=600) or {
+		'term': search_term,
+		'strategies_tried': [],
+		'results_by_strategy': {},
+		'total_searched': 0,
+		'created_at': time.time()
+	}
+	
+	# Track strategy usage
+	if strategy not in session['strategies_tried']:
+		session['strategies_tried'].append(strategy)
+	
+	strategy_key = f"{strategy}_{page}"
+	
+	# Use cached results if available
+	if strategy_key in session.get('results_by_strategy', {}):
+		cached_results = session['results_by_strategy'][strategy_key]
+		if DEBUG > 0:
+			log.debug(f'Using cached results for {strategy_key}: {len(cached_results)} tasks')
+		return cached_results, session
+	
+	# Prepare API parameters
+	current_params = params.copy()
+	current_params['page'] = page
+	
+	# Apply search strategy
+	if strategy == 'updated':
+		current_params['order_by'] = 'updated'
+		current_params['reverse'] = True
+	elif strategy == 'created':
+		current_params['order_by'] = 'created'
+		current_params['reverse'] = True  # Recent first
+	elif strategy == 'due_date':
+		current_params['order_by'] = 'due_date' 
+		current_params['reverse'] = True
+	
+	# Make API call with timeout
+	try:
+		if DEBUG > 0:
+			log.debug(f'Quick search: {strategy} page {page} for "{search_term}"')
+		
+		request = web.get(url, params=current_params, headers=headers, timeout=5)
+		request.raise_for_status()
+		data = request.json()
+		tasks = data.get('tasks', [])
+		
+		# Filter tasks client-side
+		matching_tasks = filterAndScoreTasks(tasks, search_term)
+		
+		# Cache results and update session
+		if 'results_by_strategy' not in session:
+			session['results_by_strategy'] = {}
+		session['results_by_strategy'][strategy_key] = matching_tasks
+		session['total_searched'] += len(tasks)
+		
+		# Save session
+		wf.cache_data(cache_key, session)
+		
+		if DEBUG > 0:
+			log.debug(f'Found {len(matching_tasks)}/{len(tasks)} matches (strategy: {strategy}, page: {page})')
+		
+		return matching_tasks, session
+		
+	except Exception as e:
+		log.debug(f'Quick search error: {str(e)}')
+		return [], session
 
 
 def getTasks(wf):
@@ -84,7 +277,12 @@ def getTasks(wf):
 	# Use searchScope, default to 'auto' if not configured
 	search_scope = getConfigValue(confNames['confSearchScope']) or 'auto'
 	
-	if search_scope == 'list':
+	# For search mode, expand scope to be more comprehensive
+	if len(wf.args) > 1 and wf.args[1] == 'search':
+		# For search mode, default to team-level for maximum coverage
+		# This ensures we search all accessible tasks, not just configured list/folder/space
+		pass  # No scope restrictions for search - search at team level
+	elif search_scope == 'list':
 		list_id = getConfigValue(confNames['confList'])
 		if list_id:
 			params['list_ids[]'] = validate_clickup_id(list_id, 'list')
@@ -101,18 +299,24 @@ def getTasks(wf):
 		list_id = getConfigValue(confNames['confList'])
 		if list_id:
 			params['list_ids[]'] = validate_clickup_id(list_id, 'list')
-	params['order_by'] = 'due_date'
-	# ClickUp API will return up to 100 tasks per page (their maximum)
-	params['page'] = 0
-	
 	# Differentiates between listing all Alfred-created tasks and searching for all tasks (any)
 	if len(wf.args) > 1 and wf.args[1] == 'search':
 		if DEBUG > 0:
 			log.debug('[ Mode: Search (cus) ]')
-		# Add search query if provided
-		if len(wf.args) > 0 and wf.args[0]:
-			params['query'] = wf.args[0]
-	elif len(wf.args) > 1 and wf.args[1] == 'open':
+		# For search mode, order by updated (most recent first) and exclude closed tasks
+		params['order_by'] = 'updated'
+		params['reverse'] = True
+		params['include_closed'] = False
+		params['subtasks'] = True
+		params['page'] = 0
+		# Note: Don't add ClickUp's 'query' parameter as it doesn't exist in the API
+		# We'll do client-side filtering instead with pagination
+	else:
+		# For non-search modes, use the original due_date ordering
+		params['order_by'] = 'due_date'
+		params['page'] = 0
+	
+	if len(wf.args) > 1 and wf.args[1] == 'open':
 		if DEBUG > 0:
 			log.debug('[ Mode: Open tasks (cuo) ]')
 		# from datetime import date, datetime, timezone, timedelta
@@ -123,6 +327,9 @@ def getTasks(wf):
 		todayEndOfDayMs = int((todayEndOfDay - epoch).total_seconds() / datetime.timedelta(microseconds = 1).total_seconds() / 1000)
 
 		params['due_date_lt'] = todayEndOfDayMs
+	elif len(wf.args) > 1 and wf.args[1] == 'search':
+		# Search mode parameters already set above, no additional params needed here
+		pass
 	else:
 		if DEBUG > 0:
 			log.debug('[ Mode: List tasks (cul) ]')
@@ -156,34 +363,127 @@ def getTasks(wf):
 			safe_headers['Authorization'] = maskApiKey(safe_headers['Authorization'])
 		log.debug(safe_headers)
 		log.debug(params)
-	try:
-		request = web.get(url, params = params, headers = headers, timeout = 30)
-		request.raise_for_status()
-	except Exception as e:
-		log.debug('Error on HTTP request: ' + str(e))
-		wf3.add_item(title = 'Error connecting to ClickUp.', subtitle = 'Open configuration to check your parameters?', valid = True, arg = 'cu:config ', icon = 'error.png')
-		wf3.send_feedback()
-		exit()
-	
-	try:
-		result = request.json()
-		if DEBUG > 1:
-			log.debug('Response received with %d tasks (ClickUp max: 100 per page)' % len(result.get('tasks', [])))
-	except Exception as e:
-		log.debug('Error parsing JSON response: ' + str(e))
-		wf3.add_item(title = 'Error parsing ClickUp response.', subtitle = 'The response may be too large. Try a more specific search.', valid = False, icon = 'error.png')
-		wf3.send_feedback()
-		exit()
+	# Handle search mode with fast iterative search
+	if len(wf.args) > 1 and wf.args[1] == 'search':
+		search_term = wf.args[0] if len(wf.args) > 0 else ''
+		action = wf.args[2] if len(wf.args) > 2 else 'initial'
+		
+		if DEBUG > 0:
+			log.debug(f'FAST SEARCH MODE: "{search_term}" action={action}')
+		
+		# Perform quick search
+		matching_tasks, session = quickSearch(wf, log, url, headers, params, search_term, action)
+		
+		if DEBUG > 0:
+			log.debug(f'Quick search complete: {len(matching_tasks)} matches, {session["total_searched"]} tasks searched')
+		
+		# Collect all results from session for display
+		all_results = []
+		for strategy_key, tasks in session.get('results_by_strategy', {}).items():
+			all_results.extend(tasks)
+		
+		# Remove duplicates and sort by relevance
+		seen_ids = set()
+		unique_results = []
+		for task in all_results:
+			task_id = task.get('id')
+			if task_id not in seen_ids:
+				seen_ids.add(task_id)
+				unique_results.append(task)
+		
+		unique_results.sort(key=lambda x: x.get('_relevance_score', 0), reverse=True)
+		
+		# Add search action items FIRST for better UX
+		if unique_results or session['total_searched'] > 0:
+			# Determine current strategy info
+			current_strategy = session['strategies_tried'][-1] if session['strategies_tried'] else 'updated'
+			current_page = len([k for k in session.get('results_by_strategy', {}) if k.startswith(current_strategy)]) - 1
+			
+			# Add "Search More" action for current strategy
+			if len(unique_results) > 0:  # Only if we've found some results
+				next_page = current_page + 1
+				wf3.add_item(
+					title = f'🔍 Search Next 100 Tasks ({current_strategy})',
+					subtitle = f'Found {len(unique_results)} matches so far • Searched {session["total_searched"]} tasks',
+					valid = True,
+					arg = f'cus {search_term} more_{current_strategy}_{next_page}',
+					icon = 'icon.png'
+				)
+			
+			# Add strategy switching options
+			strategy_options = [
+				('updated', 'Most Recently Updated'),
+				('created', 'Most Recently Created'), 
+				('due_date', 'By Due Date')
+			]
+			
+			for strategy_id, strategy_name in strategy_options:
+				if strategy_id not in session['strategies_tried']:
+					wf3.add_item(
+						title = f'📊 Try {strategy_name} Strategy',
+						subtitle = f'Search tasks ordered by {strategy_name.lower()}',
+						valid = True,
+						arg = f'cus {search_term} strategy_{strategy_id}',
+						icon = 'icon.png'
+					)
+		
+		if not unique_results:
+			if session['total_searched'] == 0:
+				wf3.add_item(
+					title = 'Start typing to search tasks...',
+					subtitle = 'Enter search term to find matching tasks',
+					valid = False,
+					icon = 'note.png'
+				)
+			else:
+				wf3.add_item(
+					title = 'No tasks found.',
+					subtitle = f'No tasks match "{search_term}" in {session["total_searched"]} tasks searched',
+					valid = False,
+					icon = 'note.png'
+				)
+			wf3.send_feedback()
+			return
+		
+		# Create result structure for compatibility
+		result = {'tasks': unique_results[:15]}  # Limit to top 15 results
+	else:
+		# Original single API call for non-search modes
+		try:
+			request = web.get(url, params = params, headers = headers, timeout = 30)
+			request.raise_for_status()
+		except Exception as e:
+			log.debug('Error on HTTP request: ' + str(e))
+			wf3.add_item(title = 'Error connecting to ClickUp.', subtitle = 'Open configuration to check your parameters?', valid = True, arg = 'cu:config ', icon = 'error.png')
+			wf3.send_feedback()
+			exit()
+		
+		try:
+			result = request.json()
+			if DEBUG > 1:
+				log.debug('Response received with %d tasks (ClickUp max: 100 per page)' % len(result.get('tasks', [])))
+		except Exception as e:
+			log.debug('Error parsing JSON response: ' + str(e))
+			wf3.add_item(title = 'Error parsing ClickUp response.', subtitle = 'The response may be too large. Try a more specific search.', valid = False, icon = 'error.png')
+			wf3.send_feedback()
+			exit()
 
-	# Check if response has tasks
-	if 'tasks' not in result:
-		log.debug('No tasks key in response: ' + str(result.keys()))
-		wf3.add_item(title = 'No tasks found.', subtitle = 'Try a different search query.', valid = False, icon = 'note.png')
-		wf3.send_feedback()
-		exit()
+		# Check if response has tasks
+		if 'tasks' not in result:
+			log.debug('No tasks key in response: ' + str(result.keys()))
+			wf3.add_item(title = 'No tasks found.', subtitle = 'Try a different search query.', valid = False, icon = 'note.png')
+			wf3.send_feedback()
+			exit()
 	
 	# Auto mode expansion logic - smart expansion based on search relevance
+	# Note: Skip auto-expansion for search mode since we already use comprehensive pagination
 	if search_scope == 'auto' and len(wf.args) > 1 and wf.args[1] == 'search':
+		# For search mode, we already did comprehensive pagination, so skip expansion
+		if DEBUG > 0:
+			log.debug('Search mode: Skipping auto-expansion since pagination already provides comprehensive results')
+		# Skip the entire auto-expansion section below
+	elif search_scope == 'auto' and len(wf.args) > 1:
+		# Keep the original auto-expansion logic for non-search modes
 		all_tasks = list(result.get('tasks', []))  # Start with list-level tasks
 		task_ids = {task['id'] for task in all_tasks}  # Track IDs to avoid duplicates
 		search_query = wf.args[0].lower() if wf.args[0] else ''

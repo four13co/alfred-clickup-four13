@@ -906,7 +906,17 @@ export adj_bonus=15
 export query="$1"
 export adj_bonus=15
 
-./fuzzy.py /usr/bin/python3 -O getTasks.py "$1" "$mode"</string>
+# Check if this is an action-based search (has third argument)
+if echo "$1" | grep -q " more_\|strategy_"; then
+    # Extract search term and action from the query
+    search_term=$(echo "$1" | cut -d' ' -f1)
+    action=$(echo "$1" | cut -d' ' -f2-)
+    # Direct call for action-based searches
+    /usr/bin/python3 -O getTasks.py "$search_term" "$mode" "$action"
+else
+    # Use fuzzy.py for regular searches
+    ./fuzzy.py /usr/bin/python3 -O getTasks.py "$1" "$mode"
+fi</string>
 				<key>scriptargtype</key>
 				<integer>1</integer>
 				<key>scriptfile</key>
