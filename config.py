@@ -534,7 +534,7 @@ def configuration():
 				arg = 'cu:config ' + confNames['confSearchEntities'] + ' toggle:docs',
 				icon = 'note.png'
 			)
-			docsItem.setvar('isSubmitted', 'true')
+			docsItem.setvar('isSubmitted', 'false')
 			
 			# Chat Channels
 			chats_enabled = 'chats' in current_entities
@@ -545,7 +545,7 @@ def configuration():
 				arg = 'cu:config ' + confNames['confSearchEntities'] + ' toggle:chats',
 				icon = 'label.png'
 			)
-			chatsItem.setvar('isSubmitted', 'true')
+			chatsItem.setvar('isSubmitted', 'false')
 			
 			# Lists
 			lists_enabled = 'lists' in current_entities
@@ -556,7 +556,7 @@ def configuration():
 				arg = 'cu:config ' + confNames['confSearchEntities'] + ' toggle:lists',
 				icon = 'label.png'
 			)
-			listsItem.setvar('isSubmitted', 'true')
+			listsItem.setvar('isSubmitted', 'false')
 			
 			# Folders
 			folders_enabled = 'folders' in current_entities
@@ -567,7 +567,7 @@ def configuration():
 				arg = 'cu:config ' + confNames['confSearchEntities'] + ' toggle:folders',
 				icon = 'settings.png'
 			)
-			foldersItem.setvar('isSubmitted', 'true')
+			foldersItem.setvar('isSubmitted', 'false')
 			
 			# Spaces
 			spaces_enabled = 'spaces' in current_entities
@@ -578,7 +578,7 @@ def configuration():
 				arg = 'cu:config ' + confNames['confSearchEntities'] + ' toggle:spaces',
 				icon = 'settings.png'
 			)
-			spacesItem.setvar('isSubmitted', 'true')
+			spacesItem.setvar('isSubmitted', 'false')
 			
 		elif userInput.startswith('toggle:'):
 			# This case is now handled directly by configStore.py
