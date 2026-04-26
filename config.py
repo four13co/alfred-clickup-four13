@@ -9,7 +9,7 @@ import sys
 from workflow import Workflow, ICON_WARNING, web, PasswordNotFound
 from validation import validate_clickup_id, validate_api_key
 
-confNames = {'confApi': 'apiKey', 'confDue': 'dueDate', 'confList': 'list', 'confSpace': 'space', 'confTeam': 'workspace', 'confProject': 'folder', 'confNotification': 'notification', 'confDefaultTag': 'defaultTag', 'confUser': 'userId', 'confSearchScope': 'searchScope', 'confSearchEntities': 'searchEntities'}
+confNames = {'confApi': 'apiKey', 'confDue': 'dueDate', 'confList': 'list', 'confSpace': 'space', 'confTeam': 'workspace', 'confProject': 'folder', 'confNotification': 'notification', 'confDefaultTag': 'defaultTag', 'confUser': 'userId', 'confSearchScope': 'searchScope', 'confSearchEntities': 'searchEntities', 'confSuperAgentChannel': 'superAgentChannel'}
 
 
 def maskApiKey(apiKey):
@@ -96,6 +96,10 @@ def configuration():
 			enabled_types.append('Spaces')
 		entitiesDisplay = ', '.join(enabled_types) if enabled_types else 'Tasks'
 		wf3.add_item(title = 'Configure Search Types' + (' (' + entitiesDisplay + ')' if entitiesDisplay else ''), subtitle = 'Toggle which entity types to search', valid = False, autocomplete = confNames['confSearchEntities'] + ' ')
+		superAgentChannelValue = getConfigValue(confNames['confSuperAgentChannel'])
+		superAgentChannelMeta = wf.settings.get('superAgentChannelMeta') or {}
+		superAgentDisplay = superAgentChannelMeta.get('name') or superAgentChannelValue or ''
+		wf3.add_item(title = 'Set Super Agent channel' + (' (' + superAgentDisplay + ')' if superAgentDisplay else ''), subtitle = 'Chat channel that cusa <message> posts to.', valid = False, autocomplete = confNames['confSuperAgentChannel'] + ' ')
 		wf3.add_item(title = 'Validate Configuration', subtitle = 'Check if provided configuration parameters are valid.', valid = False, autocomplete = 'validate', icon = './settings.png')
 		clearCache = wf3.add_item(title = 'Clear Cache', subtitle = 'Clear list of available labels and lists to be retrieved again.', valid = True, arg = 'cu:config cache', icon = './settings.png')
 		clearCache.setvar('isSubmitted', 'true') # No secondary screen necessary
@@ -605,6 +609,150 @@ def configuration():
 					arg = 'cu:config ' + query
 				)
 				confirmItem.setvar('isSubmitted', 'true')
+	elif query.startswith(confNames['confSuperAgentChannel'] + ' '):
+		# Fetch and display chat channels for the configured workspace
+		search_query = query.replace(confNames['confSuperAgentChannel'] + ' ', '').strip()
+		workspace_id = getConfigValue(confNames['confTeam'])
+		if not workspace_id:
+			wf3.add_item(
+				title='Workspace not set',
+				subtitle='Please set your workspace first',
+				valid=False,
+				icon='error.png'
+			)
+		else:
+			try:
+				apiKey = wf.get_password('clickUpAPI')
+				cache_key = f'chat_channels_{workspace_id}'
+				channels = wf.cached_data(cache_key, None, max_age=300)
+				validated_workspace_id = None
+				if not channels:
+					try:
+						validated_workspace_id = validate_clickup_id(workspace_id, 'workspace')
+						url = f'https://api.clickup.com/api/v3/workspaces/{validated_workspace_id}/chat/channels'
+						headers = {
+							'Authorization': validate_api_key(apiKey),
+							'Content-Type': 'application/json'
+						}
+						response = web.get(url, headers=headers, timeout=30)
+						response.raise_for_status()
+						data = response.json()
+						channels = data.get('channels', data.get('data', []))
+					except:
+						wf3.add_item(
+							title='Error fetching chat channels',
+							subtitle='Check workspace ID and internet connection',
+							valid=False,
+							icon='error.png'
+						)
+						wf3.send_feedback()
+						return
+
+				# Enrich any unnamed channels (DMs/group DMs) with member info.
+				# Runs whether channels came from cache or fresh fetch — handles older
+				# unenriched cache entries from earlier workflow versions.
+				needs_enrich = any(
+					not (c.get('name') or '').strip() and not c.get('members')
+					for c in channels
+				)
+				if needs_enrich:
+					try:
+						if validated_workspace_id is None:
+							validated_workspace_id = validate_clickup_id(workspace_id, 'workspace')
+						headers = {
+							'Authorization': validate_api_key(apiKey),
+							'Content-Type': 'application/json'
+						}
+						# Identify the current user so we can exclude them from DM labels
+						self_user_id = getConfigValue(confNames['confUser'])
+						for channel in channels:
+							if (channel.get('name') or '').strip():
+								continue
+							if channel.get('members'):
+								continue
+							ch_id = channel.get('id')
+							if not ch_id:
+								continue
+							try:
+								members_url = f'https://api.clickup.com/api/v3/workspaces/{validated_workspace_id}/chat/channels/{ch_id}/members'
+								members_response = web.get(members_url, headers=headers, timeout=15)
+								members_response.raise_for_status()
+								members_payload = members_response.json()
+								raw_members = members_payload.get('data', members_payload.get('members', members_payload if isinstance(members_payload, list) else []))
+								# Drop the current user so a 1:1 DM displays as the *other* person.
+								if self_user_id:
+									raw_members = [m for m in raw_members if str(m.get('id')) != str(self_user_id)]
+								channel['members'] = raw_members
+							except Exception:
+								pass
+						wf.cache_data(cache_key, channels)
+					except ValueError:
+						pass
+
+				# Build a friendly label per channel — DMs in ClickUp v3 have no `name`
+				def _channel_label(channel):
+					name = (channel.get('name') or '').strip()
+					if name:
+						return name, 'channel'
+					# Try common DM/participant shapes the v3 API may return
+					members = channel.get('members') or channel.get('users') or channel.get('participants') or []
+					member_names = []
+					for m in members:
+						user = m.get('user') if isinstance(m, dict) else None
+						if isinstance(user, dict):
+							member_names.append(user.get('username') or user.get('email') or '')
+						elif isinstance(m, dict):
+							member_names.append(m.get('username') or m.get('email') or m.get('name') or '')
+					member_names = [n for n in member_names if n]
+					ch_type = (channel.get('type') or '').lower()
+					if member_names:
+						joined = ', '.join(member_names[:3])
+						if len(member_names) > 3:
+							joined += f' +{len(member_names) - 3}'
+						label_type = 'dm' if ch_type in ('dm', 'direct_message', 'direct') or len(member_names) <= 2 else 'group'
+						return f'DM: {joined}' if label_type == 'dm' else f'Group: {joined}', label_type
+					# Fall back: short id with explicit type
+					short_id = channel.get('id', '')[:14]
+					return f'{ch_type or "channel"} {short_id}', ch_type or 'channel'
+
+				# Filter on the friendly label so DM searches work too
+				if search_query:
+					q = search_query.lower()
+					filtered = [c for c in channels if q in _channel_label(c)[0].lower() or q in (c.get('id') or '').lower()]
+				else:
+					filtered = channels
+				if filtered:
+					for channel in filtered:
+						channel_id = channel.get('id') or ''
+						channel_label, channel_type = _channel_label(channel)
+						type_badge = '👥' if channel_type in ('group',) else ('✉️' if channel_type in ('dm', 'direct_message', 'direct') else '💬')
+						channelItem = wf3.add_item(
+							title=f'{type_badge} {channel_label}',
+							subtitle=f"{channel_type or 'channel'} · ID {channel_id} — Use as Super Agent target",
+							arg=f"cu:config {confNames['confSuperAgentChannel']} {channel_id}|{channel_label}",
+							valid=True
+						)
+						channelItem.setvar('isSubmitted', 'true')
+				else:
+					if search_query:
+						wf3.add_item(
+							title='No channels found',
+							subtitle='Type to search by channel name',
+							valid=False
+						)
+					else:
+						wf3.add_item(
+							title='No chat channels available',
+							subtitle='Create one in ClickUp first',
+							valid=False
+						)
+			except PasswordNotFound:
+				wf3.add_item(
+					title='API key not set',
+					subtitle='Please set your API key first',
+					valid=False,
+					icon='error.png'
+				)
 	elif query.startswith('validate'): # No suffix ' ' needed, as user is not expected to provide any input.
 		wf3.add_item(title = 'Checking API Key: ' + ('✓' if checkClickUpId('list', 'confList') else '✗'), valid = True, arg = 'cu:config ')
 		wf3.add_item(title = 'Checking List Id: ' + ('✓' if checkClickUpId('list', 'confList') else '✗'), valid = True, arg = 'cu:config ')

@@ -312,7 +312,11 @@ cd alfred-clickup-four13
 
 ## 📝 Changelog
 
-### v1.14 (2025-09-26) - Beta
+### v1.15 (2026-04-26) - Beta
+- **🤖 Send to Super Agent (`cusa`)**: New keyword for posting a chat message to a configured ClickUp channel — built for routing instructions to a Super Agent automation, but works for any channel or DM.
+- **⚙️ Super Agent Channel Picker** in `cu:config`: Browse all ClickUp v3 chat channels — including DMs and group DMs — and pick the target. DMs auto-resolve to the other participant's name (e.g. "DM: Harper Dela Cruz") instead of an opaque ID.
+- **🔔 Confirmation Notifications**: macOS notification on send so you know the message landed.
+- **🔐 Validation**: New `channel` ID validator for v3 chat channel ID format.
 - **📅 Enhanced Due Date Autocomplete**: for much faster due date options
 - **📅 Added Month Relative Dates**: e.g., `@n1` for 1 month etc.
 - **📅 Added Date related Icons**: for better visual cues

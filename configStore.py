@@ -64,6 +64,30 @@ def updateConfiguration():
 			log.debug(wf.cached_data('availableLists', None, max_age = 600))
 		notify('Cleared Cache', 'Lists and labels will be retrieved from ClickUp again.')
 		#Notify cache cleared
+	elif configName == confNames['confSuperAgentChannel']:
+		# Accept either "id|name" (from picker) or just "id" (from manual entry)
+		if '|' in userInput:
+			channel_id, channel_name = userInput.split('|', 1)
+		else:
+			channel_id, channel_name = userInput, ''
+		channel_id = channel_id.strip()
+		channel_name = channel_name.strip()
+		if channel_id == '':
+			if confNames['confSuperAgentChannel'] in wf.settings:
+				wf.settings.pop(confNames['confSuperAgentChannel'])
+			if 'superAgentChannelMeta' in wf.settings:
+				wf.settings.pop('superAgentChannelMeta')
+			wf.settings.save()
+			notify('Super Agent Channel Cleared', 'cusa is now disabled until reconfigured.')
+		else:
+			wf.settings[confNames['confSuperAgentChannel']] = channel_id
+			if channel_name:
+				wf.settings['superAgentChannelMeta'] = {'name': channel_name}
+			elif 'superAgentChannelMeta' in wf.settings:
+				wf.settings.pop('superAgentChannelMeta')
+			wf.settings.save()
+			notify('Super Agent Channel Set', f'cusa <message> will post to {channel_name or channel_id}.')
+		print("")
 	elif configName == confNames['confSearchEntities'] and userInput.startswith('toggle:'):
 		# Handle toggle command for search entities
 		entity = userInput.replace('toggle:', '')

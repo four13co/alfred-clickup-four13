@@ -730,6 +730,21 @@
 				<false/>
 			</dict>
 		</array>
+		<key>C5A4F1E2-1A1A-4A1A-9A1A-AAAA00000001</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>C5A4F1E2-2B2B-4B2B-9B2B-BBBB00000002</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>C5A4F1E2-2B2B-4B2B-9B2B-BBBB00000002</key>
+		<array/>
 		<key>E09B9161-F260-4D26-9561-D857E6C992DD</key>
 		<array>
 			<dict>
@@ -2612,6 +2627,78 @@ export adj_bonus=15
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<false/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>0</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<false/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>cusa</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatelyinitially</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string></string>
+				<key>script</key>
+				<string>/usr/bin/python3 -O sendAgentMessage.py --filter "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string>Send a message to the Super Agent...</string>
+				<key>title</key>
+				<string>Send to Super Agent</string>
+				<key>type</key>
+				<integer>0</integer>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>C5A4F1E2-1A1A-4A1A-9A1A-AAAA00000001</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 -O sendAgentMessage.py --send "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>C5A4F1E2-2B2B-4B2B-9B2B-BBBB00000002</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
 	</array>
 	<key>readme</key>
 	<string>🚀 Streamline your ClickUp workflow directly from Alfred!
@@ -3147,6 +3234,28 @@ Uses fuzzy search instead of Alfred filtering.</string>
 			<real>230</real>
 			<key>ypos</key>
 			<real>50</real>
+		</dict>
+		<key>C5A4F1E2-1A1A-4A1A-9A1A-AAAA00000001</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
+			<key>note</key>
+			<string>cusa &lt;message&gt; — preview before sending to Super Agent.</string>
+			<key>xpos</key>
+			<real>60</real>
+			<key>ypos</key>
+			<real>1500</real>
+		</dict>
+		<key>C5A4F1E2-2B2B-4B2B-9B2B-BBBB00000002</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
+			<key>note</key>
+			<string>POSTs message to ClickUp v3 chat channel.</string>
+			<key>xpos</key>
+			<real>360</real>
+			<key>ypos</key>
+			<real>1500</real>
 		</dict>
 		<key>D45DBAB6-BA33-45FF-BC9F-922CD6C7188A</key>
 		<dict>
