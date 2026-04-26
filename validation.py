@@ -41,6 +41,7 @@ def validate_clickup_id(id_value, id_type='generic'):
         'list': r'^[a-zA-Z0-9]+$',        # Alphanumeric, variable length
         'folder': r'^[a-zA-Z0-9]+$',      # Alphanumeric, variable length
         'custom_task': r'^[A-Z0-9_]+$',   # Uppercase with underscores
+        'channel': r'^[a-zA-Z0-9\-]+$',   # Chat channel IDs (v3 API): alphanumeric + hyphens
         'generic': r'^[a-zA-Z0-9_]+$'     # Most permissive pattern
     }
     
