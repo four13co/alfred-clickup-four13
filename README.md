@@ -125,6 +125,8 @@ cu <Title> [:<Description>] [#<Tag>] [@<Due Date>] [!<Priority>] [+<List>]
 - `@h2` - 2 hours from now  
 - `@d3` - 3 days from now
 - `@w1` - 1 week from now
+- `@n2` - 2 months from now (shorter months will adjust to last day of month if encountered)
+- `@y1` - 1 year from now (currently just adds 365 days)
 - `@today` or `@tod` - Today
 - `@tomorrow` or `@tom` - Tomorrow
 - `@monday` or `@mon` - Next Monday
@@ -309,6 +311,11 @@ cd alfred-clickup-four13
 ```
 
 ## 📝 Changelog
+
+### v1.14 (2025-09-26) - Beta
+- **📅 Enhanced Due Date Autocomplete**: for much faster due date options
+- **📅 Added Month Relative Dates**: e.g., `@n1` for 1 month etc.
+- **📅 Added Date related Icons**: for better visual cues
 
 ### v1.13 (2025-08-02) - Beta
 - **🔍 Universal Search**: Search across all ClickUp entity types

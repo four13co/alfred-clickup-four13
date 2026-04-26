@@ -1423,7 +1423,7 @@ Uses fuzzy search instead of Alfred filtering.</string>
 		</dict>
 	</dict>
 	<key>version</key>
-	<string>1.13</string>
+	<string>1.14</string>
 	<key>webaddress</key>
 	<string>https://github.com/four13co/alfred-clickup-four13</string>
 </dict>
