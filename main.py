@@ -19,8 +19,8 @@ from validation import validate_clickup_id, validate_api_key
 DEBUG = 0 # 0 = Off (no output), 1 = Some, 2 = All (WARNING: Level 2 may expose sensitive data in logs)
 
 UPDATE_SETTINGS = {
-	'github_slug': 'mschmidtkorth/alfred-clickup-msk',
-	#'version': __version__,
+	'github_slug': 'four13co/alfred-clickup-four13',
+	'prereleases': True,
 	'frequency': 3
 }
 query = ''
