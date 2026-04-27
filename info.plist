@@ -717,19 +717,6 @@
 				<false/>
 			</dict>
 		</array>
-		<key>DBB6F290-FBD1-4836-986E-ED788ACEDB58</key>
-		<array>
-			<dict>
-				<key>destinationuid</key>
-				<string>E1966E72-E09E-4E70-BE9F-D6087444904D</string>
-				<key>modifiers</key>
-				<integer>0</integer>
-				<key>modifiersubtext</key>
-				<string></string>
-				<key>vitoclose</key>
-				<false/>
-			</dict>
-		</array>
 		<key>C5A4F1E2-1A1A-4A1A-9A1A-AAAA00000001</key>
 		<array>
 			<dict>
@@ -745,6 +732,19 @@
 		</array>
 		<key>C5A4F1E2-2B2B-4B2B-9B2B-BBBB00000002</key>
 		<array/>
+		<key>DBB6F290-FBD1-4836-986E-ED788ACEDB58</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>E1966E72-E09E-4E70-BE9F-D6087444904D</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>E09B9161-F260-4D26-9561-D857E6C992DD</key>
 		<array>
 			<dict>
@@ -3383,7 +3383,7 @@ Uses fuzzy search instead of Alfred filtering.</string>
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>1.14</string>
+	<string>1.14.0</string>
 	<key>webaddress</key>
 	<string>https://github.com/four13co/alfred-clickup-four13</string>
 </dict>
